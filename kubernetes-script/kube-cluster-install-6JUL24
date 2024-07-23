@@ -5,12 +5,6 @@
 # containerd 1.7.18-1
 # Calico (CNI/Networking)
 
-# Building server:
-# create a / partition
-# create a /boot
-# destroy swap
-# ubuntu minimal
-
 ### Server User Account (Non-root)
 SVR_USER="dev"
 
@@ -18,8 +12,9 @@ SVR_USER="dev"
 KUBE_CIDR="172.31.0.0/16"
 
 ##############################################  the basics  ############################################
- 
-su root
+
+# Switch to root
+su -
 
 ##  Basic stuff  ##
 apt update
@@ -29,9 +24,16 @@ nala --show-completion bash
 # Only keep the top 5 fastest mirrors
 # sudo nala fetch 1,2,3,4,5
 
+# Install Packages
+nala install -y gpg curl accountsservice neofetch sudo network-manager curl vim net-tools ca-certificates apt-transport-https
+
 # Aliases
 echo "alias ll='ls -la'" >> ~/.bashrc
-nala install -y neofetch sudo network-manager curl vim net-tools ca-certificates apt-transport-https
+echo "alias ll='ls -la'" >> /home/$SVR_USER/.bashrc
+
+# Setup non-root user
+/sbin/usermod -a -G sudo $SVR_USER
+echo "$SVR_USER ALL=(ALL) ALL" >> /etc/sudoers
 
 # Setup Network Manager
 echo "managed=true" >> /etc/NetworkManager/NetworkManager.conf
@@ -43,7 +45,7 @@ sed -i 's_/swap.img_#/swap.img_g' /etc/fstab
 (crontab -l 2>/dev/null; echo "@reboot /sbin/swapoff -a") | crontab - || true
 
 ####################################  Containerd install  ########################################
-## REF: https://docs.docker.com/engine/install/ubuntu/
+## REF: https://docs.docker.com/engine/install/debian/
 
 # Add Docker's official GPG key:
 install -m 0755 -d /etc/apt/keyrings
@@ -57,8 +59,8 @@ echo \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 # Update and install
-apt update
-apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+nala upgrade -y
+nala install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Add non-root user to the docker group
 usermod $SVR_USER -aG docker
@@ -70,25 +72,102 @@ apt-mark hold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
 
 # Add Kube repo keys:
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
 # Add kube repo
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
 
-sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
+nala upgrade -y
+nala install -y kubelet kubeadm kubectl
+apt-mark hold kubelet kubeadm kubectl
 
-sudo systemctl enable --now kubelet
+systemctl enable --now kubelet
 
 # Blow away containerd configs:
-rm -rf /etc/containerd/configs.toml
+# rm -f /etc/containerd/configs.toml
+
+# Update kernel for CRI/CNI
+cat <<EOF | tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+modprobe overlay
+modprobe br_netfilter
+
+touch /etc/sysctl.d/k8s.conf
+chmod 744 /etc/sysctl.d/k8s.conf
+
+cat <<EOF | tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+
+sysctl -p /etc/sysctl.d/k8s.conf
+
+## COMMENT OUT DISABLED PLUGINS
+#disabled_plugins = ["cri"]
+sed -i 's_/disabled_plugins_#/disabled_plugins_g' /etc/containerd/config.toml
+
+# Update containerd config.toml
+cat <<EOF | tee /etc/containerd/config.toml
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+          runtime_type = "io.containerd.runc.v2"
+          runtime_engine = ""
+          runtime_root = ""
+          privileged_without_host_devices = false
+          base_runtime_spec = ""
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+          SystemdCgroup = true
+EOF
+
+# restart containerd after new config.toml
+systemctl restart containerd.service
 
 ############################## Kube Bootstrap ####################################
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
 
-kubeadm init --pod-network-cidr=$KUBE_CIDR > /tmp/bootstrap_log.txt
+kubeadm init --pod-network-cidr=$KUBE_CIDR | tee /tmp/bootstrap_log.txt
 grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
+
+############################## Install Kube CNI (Calico) #########################
+### REF: https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
+
+mkdir -p $HOME/.kube
+cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+chown $(id -u):$(id -g) $HOME/.kube/config
+
+# Install Calico operator
+### REF: https://docs.tigera.io/calico/latest/reference/installation/api
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+
+# Install Calico CRDs
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml
+
+##### STUCK 22 JUL, kubelet shitting bed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #########################################  SSH Setup  #####################################################
 
@@ -102,80 +181,9 @@ grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 # ssh-copy-id svr2
 # ssh-copy-id svr3
 
-############################# OLD Commands #################################
-
-# ##  Add Repo Keys  ##
-# OS=xUbuntu_22.04
-# # 24 no workie
-# CRIO_MINOR_VERSION=1.28
-# CRIO_FULL_VERSION=1.28.4
-# # 1.26 was old latest
-# # 1.30.3, new latest
-
-# # CRI-O Keys
-# curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:/$CRIO_MINOR_VERSION:/$CRIO_FULL_VERSION/$OS/Release.key > /etc/apt/trusted.gpg.d/crio-release-key.gpg | gpg --keyring /etc/apt/trusted.gpg.d/crio-release-key.gpg --import
-# # might not need this:
-# # curl -L https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/Release.key | apt-key --keyring /etc/apt/trusted.gpg.d/libcontainers.gpg add -
-
-# # Kube key
-
-# curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://dl.k8s.io/apt/doc/apt-key.gpg
-
-# ##  Add Repos  ##
-
-# # CRI-O repos
-# cat <<EOF | tee /etc/apt/sources.list.d/crio-stable.list
-# deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /
-# EOF
-
-# #cat <<EOF | tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:$VERSION.list
-# #deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$CRIO_MINOR_VERSION:/$CRIO_FULL_VERSION/$OS/ /
-# #EOF
-
-# ############### BAILED!!
 
 
-# # Kube repo
-# echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
 
-# apt update
-
-# Select all services
-# systemctl daemon-reload
-
-# apt upgrade -y
-
-# ## Install the important things 
-# apt install -y cri-o cri-o-runc cri-tools kubeadm kubelet kubectl
-# apt-mark hold cri-o cri-o-runc cri-tools kubeadm kubelet kubectl
-
-# systemctl start crio.service
-# systemctl enable crio.service
-
-## Set system variables or kubeadm will shit the bed 
-# These files are loaded into the  modules-load.d directory to be loaded at each boot
-
-# touch /etc/modules-load.d/k8s.conf
-# chmod 777 /etc/modules-load.d/k8s.conf
-
-# cat <<EOF | tee /etc/modules-load.d/k8s.conf
-# overlay
-# br_netfilter
-# EOF
-
-# modprobe overlay
-# modprobe br_netfilter
-
-# touch /etc/sysctl.d/k8s.conf
-# chmod 777 /etc/sysctl.d/k8s.conf
-
-# cat <<EOF | tee /etc/sysctl.d/k8s.conf
-# net.bridge.bridge-nf-call-ip6tables = 1
-# net.bridge.bridge-nf-call-iptables = 1
-# net.ipv4.ip_forward = 1
-# EOF
-
-# sysctl -p /etc/sysctl.d/k8s.conf
 
 ## LETS MAKE A BABY
 ## Thats what Jeff said, but I'm gonna say "little hand says its time to rock and roll"
@@ -230,7 +238,7 @@ rm -rf /etc/sysctl.d/k8s.conf
 
 
 # ALL NODES --- Restart CRI-O in case you have a networking issue
-systemctl restart crio
+# systemctl restart crio
 
 ## Common issues here:
 # - Found multiple CRI endpoints on the host. >> You need to check for docker, crio, and containerd services. Only one can be running at kubeadm "init" or "join"
