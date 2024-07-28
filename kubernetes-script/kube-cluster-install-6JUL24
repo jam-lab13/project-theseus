@@ -4,6 +4,7 @@
 # docker 5:27.0.3-1
 # containerd 1.7.18-1
 # Calico (CNI/Networking)
+# Ceph (Storage Solution)
 
 ### Server User Account (Non-root)
 SVR_USER="dev"
@@ -25,7 +26,7 @@ nala --show-completion bash
 # sudo nala fetch 1,2,3,4,5
 
 # Install Packages
-nala install -y gpg curl accountsservice neofetch sudo network-manager curl vim net-tools ca-certificates apt-transport-https
+nala install -y gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
 
 # Aliases
 echo "alias ll='ls -la'" >> ~/.bashrc
@@ -99,7 +100,7 @@ touch /etc/sysctl.d/k8s.conf
 chmod 744 /etc/sysctl.d/k8s.conf
 
 cat <<EOF | tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-ip6tables = 1 #do we need this?
 net.bridge.bridge-nf-call-iptables = 1
 net.ipv4.ip_forward = 1
 EOF
@@ -112,42 +113,83 @@ sed -i 's_/disabled_plugins_#/disabled_plugins_g' /etc/containerd/config.toml
 
 # Update containerd config.toml
 cat <<EOF | tee /etc/containerd/config.toml
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-          runtime_type = "io.containerd.runc.v2"
-          runtime_engine = ""
-          runtime_root = ""
-          privileged_without_host_devices = false
-          base_runtime_spec = ""
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-          SystemdCgroup = true
+# sed for this:
+SystemdCgroup = true
+EOF
+
+
+# kubeadm-config.yaml
+cat <<EOF | tee ~/kubeadm-config.yaml
+kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta3
+kubernetesVersion: v1.21.0
+---
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+cgroupDriver: systemd
 EOF
 
 # restart containerd after new config.toml
 systemctl restart containerd.service
 
+# if containerd fails after boostrap or CNI install
+# containerd config default > /etc/containerd/config.toml
 ############################## Kube Bootstrap ####################################
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
 
-kubeadm init --pod-network-cidr=$KUBE_CIDR | tee /tmp/bootstrap_log.txt
+kubeadm init --config workdir/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
 grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 
-############################## Install Kube CNI (Calico) #########################
-### REF: https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
 
+
+
+kubeadm join 192.168.1.111:6443 --token 735lbe.wzqh67yeq7zned5e \
+        --discovery-token-ca-cert-hash sha256:076fe661b5bfa644ffac139a521b0f1fc520b159d554c23b539daf02fb3a34f0
+--pod-network-cidr=$KUBE_CIDR
+# kubeadm reset
+# rm -rf ~/.kube/*
+# iptables -F
+# rm -rf /etc/cni/net.d
+
+
+
+# Root User
+export KUBECONFIG=/etc/kubernetes/admin.conf
+
+# Non-root User
 mkdir -p $HOME/.kube
 cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 chown $(id -u):$(id -g) $HOME/.kube/config
 
-# Install Calico operator
-### REF: https://docs.tigera.io/calico/latest/reference/installation/api
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+# Time to taint
+kubectl taint nodes --all node-role.kubernetes.io/master-
 
-# Install Calico CRDs
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml
+############################## Install Kube CNI (Calico) #########################
+### REF: https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
 
-##### STUCK 22 JUL, kubelet shitting bed
+
+
+# Cilium CLI install
+CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+CLI_ARCH=amd64
+if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+
+cilium install --version 1.16.0
+
+
+
+# # Install Calico operator
+# ### REF: https://docs.tigera.io/calico/latest/reference/installation/api
+# kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+
+# # Install Calico CRDs
+# kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml
+
 
 
 
