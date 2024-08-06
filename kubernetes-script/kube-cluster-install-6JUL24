@@ -26,7 +26,7 @@ nala --show-completion bash
 # sudo nala fetch 1,2,3,4,5
 
 # Install Packages
-nala install -y firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+nala install -y gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https gnupg
 
 # Aliases
 echo "alias ll='ls -la'" >> ~/.bashrc
@@ -45,128 +45,92 @@ swapoff -a
 sed -i 's_/swap.img_#/swap.img_g' /etc/fstab
 (crontab -l 2>/dev/null; echo "@reboot /sbin/swapoff -a") | crontab - || true
 
-####################################  Containerd install  ########################################
-## REF: https://docs.docker.com/engine/install/debian/
-
-# Add Docker's official GPG key:
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-
-# Add the repository to Apt sources:
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-# Update and install
-nala upgrade -y
-nala install -y containerd.io #docker-ce docker-ce-cli containerd.io docker-buildx-plugin #docker-compose-plugin
-
-# Add non-root user to the docker group
-usermod $SVR_USER -aG docker
-
-# Apt hold required packages:
-apt-mark hold containerd.io #docker-buildx-plugin docker-compose-plugin docker-ce docker-ce-cli
-
-################################### Kube install ################################
-# REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
-
-# Add Kube repo keys:
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-
-# Add kube repo
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
-
-nala upgrade -y
-nala install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-
-systemctl enable --now kubelet
-
-# Update kernel for CRI/CNI
-cat <<EOF | tee /etc/modules-load.d/k8s.conf
-overlay
+####################################  Deviation Begins  ########################################
+# Update kernel for CRI
+cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf 
+overlay 
 br_netfilter
 EOF
 
-modprobe overlay
-modprobe br_netfilter
+sudo modprobe overlay 
+sudo modprobe br_netfilter
 
-touch /etc/sysctl.d/k8s.conf
-chmod 744 /etc/sysctl.d/k8s.conf
-
-cat <<EOF | tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-ip6tables = 1 #do we need this?
+cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-k8s.conf
 net.bridge.bridge-nf-call-iptables = 1
-net.ipv4.ip_forward = 1
+net.ipv4.ip_forward = 1 
+net.bridge.bridge-nf-call-ip6tables = 1 
 EOF
 
-sysctl -p /etc/sysctl.d/k8s.conf
+# Make above take affect
+sysctl --system
 
-## COMMENT OUT DISABLED PLUGINS
-containerd config default > /etc/containerd/config.toml
-sed -i 's_/disabled_plugins_#/disabled_plugins_g' /etc/containerd/config.toml
+####################################  Containerd install  ########################################
+nala install -y containerd
 
-# Update containerd config.toml
-# containerd config default > /etc/containerd/config.toml
-# sed for this:
-SystemdCgroup = true
+# Configure containerd to work with Kubernetes
+containerd config default | sudo tee /etc/containerd/config.toml >/dev/null 2>&1
 
-# kubeadm-config.yaml
-mkdir ~/dev-dir
-cat <<EOF | tee ~/dev-dir/kubeadm-config.yaml
-kind: ClusterConfiguration
-apiVersion: kubeadm.k8s.io/v1beta3
-kubernetesVersion: v1.30.3
----
-kind: KubeletConfiguration
-apiVersion: kubelet.config.k8s.io/v1beta1
-cgroupDriver: systemd
-EOF
+####################################  Enable SystemdCgroup for containerd  ########################################
+# Edit the file ‘/etc/containerd/config.toml’
+# and look for the section
+# ‘[plugins.”io.containerd.grpc.v1.cri”.containerd.runtimes.runc.options]’ 
+# and change ‘SystemdCgroup = false’ to ‘SystemdCgroup = true‘
 
-# restart containerd after new config.toml
-systemctl restart containerd.service
-
-# if containerd fails after boostrap or CNI install
-############################## Kube Bootstrap ####################################
-# REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
-
-kubeadm init --config ~/dev-dir/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
-grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
-
-
---pod-network-cidr=$KUBE_CIDR
-## Cleanup Commands
-kubeadm reset
-rm -rf ~/.kube/*
-iptables -F
-rm -rf /etc/cni/net.d
-rm -f /tmp/bootstrap_log.txt
 systemctl restart containerd
-systemctl stop kubelet
+systemctl enable containerd
 
+####################################  Kubernetes install  ########################################
 
+# Add kube repos
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
-kubectl logs kube-controller-manager-svr1 -n kube-system >> /tmp/kube-controller-manager-svr1.txt
-kubectl logs kube-apiserver-svr1 -n kube-system >> /tmp/kube-apiserver-svr1.txt
-kubectl logs kube-scheduler-svr1 -n kube-system >> /tmp/kube-scheduler-svr1.txt
+# Update to grab k8s repo updates
+nala upgrade -y
+nala install -y kubelet kubeadm kubectl
 
-# Root User
+# Configure an initial kubelet yaml file for kubeadm
+# mkdir workdir
+# cd workdir
+# vim kubelet.yaml
+#
+# apiVersion: kubeadm.k8s.io/v1beta3
+# kind: InitConfiguration
+# ---
+# apiVersion: kubeadm.k8s.io/v1beta3
+# kind: ClusterConfiguration
+# kubernetesVersion: "1.30.0" # Replace with your desired version
+# ---
+# apiVersion: kubelet.config.k8s.io/v1beta1
+# kind: KubeletConfiguration
+
+# Time to init
+kubeadm init --config workdir/kubelet.yaml --v 1 | tee /tmp/bootstrap_log
+
+# Quick grab of tokens if you missed it
+grep -a1 "kubeadm join" /tmp/bootstrap_log
+
+# Stuff to do after init
+# To start using your cluster, you need to run the following as a regular user:
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+# Alternatively, if you are the root user, you can run:
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
-# Non-root User
-mkdir -p $HOME/.kube
-cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-chown $(id -u):$(id -g) $HOME/.kube/config
+# Got these tokens back
+#kubeadm join 192.168.242.130:6443 --token qjw9j3.wccprdgjbnolo56f \
+#--discovery-token-ca-cert-hash sha256:7e02f57c38b57560b16b9472aa45f6b3092efc7eb9b408556b2eb91fe2da68ad
 
-# Time to taint
-kubectl taint nodes --all node-role.kubernetes.io/master-
-
-############################## Install Kube CNI (Calico) #########################
-### REF: https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
+# Taint all the things; node-role.kubernetes.io/master is deprecated
+# REF: https://kubernetes.io/docs/reference/labels-annotations-taints/#node-role-kubernetes-io-control-plane-taint
+kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-
 
 
+####################################  Cilium (CNI) install  ########################################
+# Installs the Cilium CLI tool first before installing the Cilium CNI
+# REF: https://docs.cilium.io/en/stable/gettingstarted/k8s-install-default/
 
 # Cilium CLI install
 CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
@@ -177,145 +141,12 @@ sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
 sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
 rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
 
+# Cilium install
+# Note: After running this command it could take a while 
+# before Cilium reports as healthy
 cilium install --version 1.16.0
+cilium status --wait # Grab a snack here...
 
 
-
-# # Install Calico operator
-# ### REF: https://docs.tigera.io/calico/latest/reference/installation/api
-# kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
-
-# # Install Calico CRDs
-# kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#########################################  SSH Setup  #####################################################
-
-# ssh-keygen
-
-# echo "192.168.1.111 svr1" >> /etc/hosts
-# echo "192.168.1.112 svr2" >> /etc/hosts
-# echo "192.168.1.113 svr3" >> /etc/hosts
-
-# ssh-copy-id svr1
-# ssh-copy-id svr2
-# ssh-copy-id svr3
-
-
-
-
-
-## LETS MAKE A BABY
-## Thats what Jeff said, but I'm gonna say "little hand says its time to rock and roll"
-
-# systemctl restart crio
-
-# W // We need a command here to do the kubeinit, cut the join code, and paste it into the kube_join.txt command
-
-# Run as sudo $SVR_USER
-mkdir -p $HOME/.kube
-cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-chown $(id -u):$(id -g) $HOME/.kube/config
-
-# W // opscheck with the command 
-kubectl get nodes
-
-cp $HOME/.kube/config /etc/dev_range/workdir/.
-chmod 777 /etc/dev_range/workdir/config
-cp /etc/kubernetes/admin.conf /etc/dev_range/workdir/.
-chmod 777 /etc/dev_range/workdir/admin.conf
-
-# Deploy Flannel overlay router
-hostname | grep elastic1 > /dev/null && kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-
-# Deploy Metrics server - insecure-tls mode
-hostname | grep elastic1 > /dev/null && kubectl apply -f https://raw.githubusercontent.com/techiescamp/kubeadm-scripts/main/manifests/metrics-server.yaml
-
-grep -qxF 'export KUBECONFIG=/etc/kubernetes/admin.conf' ~/.bashrc || echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> ~/.bashrc
-
-## // ELASTIC 2 and 3 NOTES // ##
-# W // For obvious reasons the tokens will not be the same
-
-kubeadm join 10.112.100.201:6443 --token 9xc85z.nvbxpov8bdm1b9ha \
-        --discovery-token-ca-cert-hash sha256:e86dbb8638438771b7ef66b3a59ecb5c34d26bd89bab3b936010de6c46131823
-
-mkdir -p $HOME/.kube
-scp groot@10.112.100.201:/etc/dev_range/workdir/config $HOME/.kube/.
-scp groot@10.112.100.201:/etc/dev_range/workdir/admin.conf /etc/kubernetes/.
-
-grep -qxF 'export KUBECONFIG=/etc/kubernetes/admin.conf' ~/.bashrc || echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> ~/.bashrc
-
-
-##  Cleanup Commands ##
-apt remove -y cri-o cri-o-runc cri-tools kubeadm kubelet kubectl
-rm -rf /etc/cni/net.d
-iptables -F
-rm -rf ~/.kube/*
-rm -rf /etc/kubernetes/
-rm -rf /etc/containerd
-rm -rf /etc/modules-load.d/k8s.conf
-rm -rf /etc/sysctl.d/k8s.conf
-
-
-# ALL NODES --- Restart CRI-O in case you have a networking issue
-# systemctl restart crio
-
-## Common issues here:
-# - Found multiple CRI endpoints on the host. >> You need to check for docker, crio, and containerd services. Only one can be running at kubeadm "init" or "join"
-# - Something about "invalid arguments from /proc* >> you need to make sure your config file has the right settings, you've done sysctl --system, and compelted a reboot.
-#   - For more on this issue, check line 
-# cat /etc/kubernetes/admin.conf
-# kubeadm reset if you fuck up the master, do cleanup actions up top
-# also run: rm -rf /etc/cni/net.d/
-# flannel requires the "--pod-network-cidr=10.244.0.0/16"
-# if you are too slow with the "join.sh" script, the token will expire. make a new one with:
-# kubeadm token create --print-join-command
-
-## Remove all Taints // if you want to schedule apps on the master node by default
-# kubectl taint nodes elastic1 key-
-
-## Create a default storage class
-
-# mkdir /etc/dev_range/workdir/kube_configs
-
-# cat <<EOF | tee /etc/dev_range/workdir/kube_configs/default-storage-class.yaml
-# apiVersion: storage.k8s.io/v1
-# kind: StorageClass
-# metadata:
-#   name: local-storage
-# provisioner: kubernetes.io/no-provisioner
-# parameters:
-#   type: gp2
-# reclaimPolicy: Retain
-# allowVolumeExpansion: true
-# mountOptions:
-#   - debug
-# volumeBindingMode: WaitForFirstConsumer
-# EOF
-
-# kubectl apply -f /etc/dev_range/workdir/kube_configs/default-storage-class.yaml
-# kubectl patch storageclass local-storage -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-
-
-# kubeadm join 10.112.100.201:6443 --token 9xc85z.nvbxpov8bdm1b9ha \
-#         --discovery-token-ca-cert-hash sha256:e86dbb8638438771b7ef66b3a59ecb5c34d26bd89bab3b936010de6c46131823
+####################################  Ceph install  ########################################
+# TBD...
