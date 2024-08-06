@@ -26,7 +26,7 @@ nala --show-completion bash
 # sudo nala fetch 1,2,3,4,5
 
 # Install Packages
-nala install -y gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+nala install -y firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
 
 # Aliases
 echo "alias ll='ls -la'" >> ~/.bashrc
@@ -61,13 +61,13 @@ echo \
 
 # Update and install
 nala upgrade -y
-nala install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+nala install -y containerd.io #docker-ce docker-ce-cli containerd.io docker-buildx-plugin #docker-compose-plugin
 
 # Add non-root user to the docker group
 usermod $SVR_USER -aG docker
 
 # Apt hold required packages:
-apt-mark hold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+apt-mark hold containerd.io #docker-buildx-plugin docker-compose-plugin docker-ce docker-ce-cli
 
 ################################### Kube install ################################
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
@@ -83,9 +83,6 @@ nala install -y kubelet kubeadm kubectl
 apt-mark hold kubelet kubeadm kubectl
 
 systemctl enable --now kubelet
-
-# Blow away containerd configs:
-# rm -f /etc/containerd/configs.toml
 
 # Update kernel for CRI/CNI
 cat <<EOF | tee /etc/modules-load.d/k8s.conf
@@ -108,22 +105,20 @@ EOF
 sysctl -p /etc/sysctl.d/k8s.conf
 
 ## COMMENT OUT DISABLED PLUGINS
-#disabled_plugins = ["cri"]
+containerd config default > /etc/containerd/config.toml
 sed -i 's_/disabled_plugins_#/disabled_plugins_g' /etc/containerd/config.toml
 
 # Update containerd config.toml
-cat <<EOF | tee /etc/containerd/config.toml
-
+# containerd config default > /etc/containerd/config.toml
 # sed for this:
 SystemdCgroup = true
-EOF
-
 
 # kubeadm-config.yaml
-cat <<EOF | tee ~/kubeadm-config.yaml
+mkdir ~/dev-dir
+cat <<EOF | tee ~/dev-dir/kubeadm-config.yaml
 kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta3
-kubernetesVersion: v1.21.0
+kubernetesVersion: v1.30.3
 ---
 kind: KubeletConfiguration
 apiVersion: kubelet.config.k8s.io/v1beta1
@@ -134,25 +129,28 @@ EOF
 systemctl restart containerd.service
 
 # if containerd fails after boostrap or CNI install
-# containerd config default > /etc/containerd/config.toml
 ############################## Kube Bootstrap ####################################
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
 
-kubeadm init --config workdir/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
+kubeadm init --config ~/dev-dir/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
 grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 
 
-
-
-kubeadm join 192.168.1.111:6443 --token 735lbe.wzqh67yeq7zned5e \
-        --discovery-token-ca-cert-hash sha256:076fe661b5bfa644ffac139a521b0f1fc520b159d554c23b539daf02fb3a34f0
 --pod-network-cidr=$KUBE_CIDR
-# kubeadm reset
-# rm -rf ~/.kube/*
-# iptables -F
-# rm -rf /etc/cni/net.d
+## Cleanup Commands
+kubeadm reset
+rm -rf ~/.kube/*
+iptables -F
+rm -rf /etc/cni/net.d
+rm -f /tmp/bootstrap_log.txt
+systemctl restart containerd
+systemctl stop kubelet
 
 
+
+kubectl logs kube-controller-manager-svr1 -n kube-system >> /tmp/kube-controller-manager-svr1.txt
+kubectl logs kube-apiserver-svr1 -n kube-system >> /tmp/kube-apiserver-svr1.txt
+kubectl logs kube-scheduler-svr1 -n kube-system >> /tmp/kube-scheduler-svr1.txt
 
 # Root User
 export KUBECONFIG=/etc/kubernetes/admin.conf
