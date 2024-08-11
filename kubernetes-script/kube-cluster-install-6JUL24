@@ -8,14 +8,16 @@
 
 ### Server User Account (Non-root)
 SVR_USER="dev"
-
-### Kube boostrap ip range
-KUBE_CIDR="172.31.0.0/16"
+WORKDIR="/home/$SVR_USER/dev-dir"
 
 ##############################################  the basics  ############################################
 
 # Switch to root
 su -
+
+# Add Helm Key & Repo
+curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
 
 ##  Basic stuff  ##
 apt update
@@ -26,7 +28,8 @@ nala --show-completion bash
 # sudo nala fetch 1,2,3,4,5
 
 # Install Packages
-nala install -y firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+nala install -y git firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+
 
 # Aliases
 echo "alias ll='ls -la'" >> ~/.bashrc
@@ -45,6 +48,18 @@ swapoff -a
 sed -i 's_/swap.img_#/swap.img_g' /etc/fstab
 (crontab -l 2>/dev/null; echo "@reboot /sbin/swapoff -a") | crontab - || true
 
+#########################################  SSH Setup  #####################################################
+
+# ssh-keygen
+
+# echo "192.168.1.111 svr1" >> /etc/hosts
+# echo "192.168.1.112 svr2" >> /etc/hosts
+# echo "192.168.1.113 svr3" >> /etc/hosts
+
+# ssh-copy-id svr1
+# ssh-copy-id svr2
+# ssh-copy-id svr3
+
 ####################################  Containerd install  ########################################
 ## REF: https://docs.docker.com/engine/install/debian/
 
@@ -61,28 +76,15 @@ echo \
 
 # Update and install
 nala upgrade -y
-nala install -y containerd.io #docker-ce docker-ce-cli containerd.io docker-buildx-plugin #docker-compose-plugin
-
+nala install -y containerd.io 
 # Add non-root user to the docker group
 usermod $SVR_USER -aG docker
 
 # Apt hold required packages:
-apt-mark hold containerd.io #docker-buildx-plugin docker-compose-plugin docker-ce docker-ce-cli
+apt-mark hold containerd.io 
 
 ################################### Kube install ################################
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
-
-# Add Kube repo keys:
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-
-# Add kube repo
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
-
-nala upgrade -y
-nala install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-
-systemctl enable --now kubelet
 
 # Update kernel for CRI/CNI
 cat <<EOF | tee /etc/modules-load.d/k8s.conf
@@ -104,18 +106,31 @@ EOF
 
 sysctl -p /etc/sysctl.d/k8s.conf
 
+# Add Kube repo keys:
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+# Add kube repo
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+nala upgrade -y
+nala install -y kubelet kubeadm kubectl
+apt-mark hold kubelet kubeadm kubectl
+
+systemctl enable --now kubelet
+
+############################# containerd config #############################
 ## COMMENT OUT DISABLED PLUGINS
-containerd config default > /etc/containerd/config.toml
 sed -i 's_/disabled_plugins_#/disabled_plugins_g' /etc/containerd/config.toml
-
 # Update containerd config.toml
-# containerd config default > /etc/containerd/config.toml
-# sed for this:
-SystemdCgroup = true
+containerd config default > /etc/containerd/config.toml
 
+# sed for this:
+# SystemdCgroup = true
+
+############################## kubeadm config #############################
 # kubeadm-config.yaml
-mkdir ~/dev-dir
-cat <<EOF | tee ~/dev-dir/kubeadm-config.yaml
+mkdir $WORKDIR
+cat <<EOF | tee $WORKDIR/kubeadm-config.yaml
 kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta3
 kubernetesVersion: v1.30.3
@@ -128,29 +143,25 @@ EOF
 # restart containerd after new config.toml
 systemctl restart containerd.service
 
-# if containerd fails after boostrap or CNI install
 ############################## Kube Bootstrap ####################################
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
 
 kubeadm init --config ~/dev-dir/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
 grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 
+## Optional if you want to setup your own cluster IP-space
+### Kube boostrap ip range
+#KUBE_CIDR="172.31.0.0/16"
+#--pod-network-cidr=$KUBE_CIDR
 
---pod-network-cidr=$KUBE_CIDR
 ## Cleanup Commands
-kubeadm reset
-rm -rf ~/.kube/*
-iptables -F
-rm -rf /etc/cni/net.d
-rm -f /tmp/bootstrap_log.txt
-systemctl restart containerd
-systemctl stop kubelet
-
-
-
-kubectl logs kube-controller-manager-svr1 -n kube-system >> /tmp/kube-controller-manager-svr1.txt
-kubectl logs kube-apiserver-svr1 -n kube-system >> /tmp/kube-apiserver-svr1.txt
-kubectl logs kube-scheduler-svr1 -n kube-system >> /tmp/kube-scheduler-svr1.txt
+# kubeadm reset
+# rm -rf ~/.kube/*
+# iptables -F
+# rm -rf /etc/cni/net.d
+# rm -f /tmp/bootstrap_log.txt
+# systemctl restart containerd
+# systemctl stop kubelet
 
 # Root User
 export KUBECONFIG=/etc/kubernetes/admin.conf
@@ -166,11 +177,10 @@ kubectl taint nodes --all node-role.kubernetes.io/master-
 ############################## Install Kube CNI (Calico) #########################
 ### REF: https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
 
-
-
 # Cilium CLI install
 CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
 CLI_ARCH=amd64
+
 if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
 curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
 sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
@@ -179,108 +189,93 @@ rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
 
 cilium install --version 1.16.0
 
+################ Ceph pre-reqs ################################
+# add a couple disks to your vm
+# fdisk -l
+# fdisk /dev/<new device name>
+# g (add a new gpt)
+# n (add a new partitioning table)
+# w (write disk)
 
+# Git Clone Rook Ceph and Deploy basic Ceph cluster
+git clone --single-branch --branch v1.14.9 https://github.com/rook/rook.git
+cd rook/deploy/examples
+kubectl create -f crds.yaml -f common.yaml -f operator.yaml
+kubectl create -f cluster.yaml
 
-# # Install Calico operator
-# ### REF: https://docs.tigera.io/calico/latest/reference/installation/api
-# kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+##enable rook discovery daemon in the operator.yaml
+## cluster.yaml, enable host = true to use host IPs vs Cluster/LB IPs
 
-# # Install Calico CRDs
-# kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml
+### Ceph storage class example:
+# apiVersion: ceph.rook.io/v1
+# kind: CephBlockPool
+# metadata:
+#   name: replicapool
+#   namespace: rook-ceph # namespace:cluster
+# spec:
+#   failureDomain: host
+#   replicated:
+#     size: 1
+#     # Disallow setting pool with replica 1, this could lead to data loss without recovery.
+#     # Make sure you're *ABSOLUTELY CERTAIN* that is what you want
+#     requireSafeReplicaSize: false
+#     # gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity of a given pool
+#     # for more info: https://docs.ceph.com/docs/master/rados/operations/placement-groups/#specifying-expected-pool-size
+#     #targetSizeRatio: .5
+# ---
+# apiVersion: storage.k8s.io/v1
+# kind: StorageClass
+# metadata:
+#    name: rook-ceph-block
+# # Change "rook-ceph" provisioner prefix to match the operator namespace if needed
+# provisioner: rook-ceph.rbd.csi.ceph.com  # driver:namespace:operator
+# parameters:
+#     # clusterID is the namespace where the rook cluster is running
+#     # If you change this namespace, also change the namespace below where the secret namespaces are defined
+#     clusterID: rook-ceph # namespace:cluster
 
+#     # If you want to use erasure coded pool with RBD, you need to create
+#     # two pools. one erasure coded and one replicated.
+#     # You need to specify the replicated pool here in the `pool` parameter, it is
+#     # used for the metadata of the images.
+#     # The erasure coded pool must be set as the `dataPool` parameter below.
+#     #dataPool: ec-data-pool
+#     pool: replicapool
 
+#     # RBD image format. Defaults to "2".
+#     imageFormat: "2"
 
+#     # RBD image features. Available for imageFormat: "2". CSI RBD currently supports only `layering` feature.
+#     imageFeatures: layering
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#########################################  SSH Setup  #####################################################
-
-# ssh-keygen
-
-# echo "192.168.1.111 svr1" >> /etc/hosts
-# echo "192.168.1.112 svr2" >> /etc/hosts
-# echo "192.168.1.113 svr3" >> /etc/hosts
-
-# ssh-copy-id svr1
-# ssh-copy-id svr2
-# ssh-copy-id svr3
-
-
-
-
-
-## LETS MAKE A BABY
-## Thats what Jeff said, but I'm gonna say "little hand says its time to rock and roll"
-
-# systemctl restart crio
-
-# W // We need a command here to do the kubeinit, cut the join code, and paste it into the kube_join.txt command
-
-# Run as sudo $SVR_USER
-mkdir -p $HOME/.kube
-cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-chown $(id -u):$(id -g) $HOME/.kube/config
-
-# W // opscheck with the command 
-kubectl get nodes
-
-cp $HOME/.kube/config /etc/dev_range/workdir/.
-chmod 777 /etc/dev_range/workdir/config
-cp /etc/kubernetes/admin.conf /etc/dev_range/workdir/.
-chmod 777 /etc/dev_range/workdir/admin.conf
-
-# Deploy Flannel overlay router
-hostname | grep elastic1 > /dev/null && kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-
-# Deploy Metrics server - insecure-tls mode
-hostname | grep elastic1 > /dev/null && kubectl apply -f https://raw.githubusercontent.com/techiescamp/kubeadm-scripts/main/manifests/metrics-server.yaml
-
-grep -qxF 'export KUBECONFIG=/etc/kubernetes/admin.conf' ~/.bashrc || echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> ~/.bashrc
-
-## // ELASTIC 2 and 3 NOTES // ##
-# W // For obvious reasons the tokens will not be the same
-
-kubeadm join 10.112.100.201:6443 --token 9xc85z.nvbxpov8bdm1b9ha \
-        --discovery-token-ca-cert-hash sha256:e86dbb8638438771b7ef66b3a59ecb5c34d26bd89bab3b936010de6c46131823
-
-mkdir -p $HOME/.kube
-scp groot@10.112.100.201:/etc/dev_range/workdir/config $HOME/.kube/.
-scp groot@10.112.100.201:/etc/dev_range/workdir/admin.conf /etc/kubernetes/.
-
-grep -qxF 'export KUBECONFIG=/etc/kubernetes/admin.conf' ~/.bashrc || echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> ~/.bashrc
+#     # The secrets contain Ceph admin credentials. These are generated automatically by the operator
+#     # in the same namespace as the cluster.
+#     csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+#     csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph # namespace:cluster
+#     csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+#     csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph # namespace:cluster
+#     csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+#     csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph # namespace:cluster
+#     # Specify the filesystem type of the volume. If not specified, csi-provisioner
+#     # will set default as `ext4`.
+#     csi.storage.k8s.io/fstype: ext4
+# # uncomment the following to use rbd-nbd as mounter on supported nodes
+# #mounter: rbd-nbd
+# allowVolumeExpansion: true
+# reclaimPolicy: Delete
 
 
 ##  Cleanup Commands ##
-apt remove -y cri-o cri-o-runc cri-tools kubeadm kubelet kubectl
-rm -rf /etc/cni/net.d
-iptables -F
-rm -rf ~/.kube/*
-rm -rf /etc/kubernetes/
-rm -rf /etc/containerd
-rm -rf /etc/modules-load.d/k8s.conf
-rm -rf /etc/sysctl.d/k8s.conf
+# apt remove -y cri-o cri-o-runc cri-tools kubeadm kubelet kubectl
+# rm -rf /etc/cni/net.d
+# iptables -F
+# rm -rf ~/.kube/*
+# rm -rf /etc/kubernetes/
+# rm -rf /etc/containerd
+# rm -rf /etc/modules-load.d/k8s.conf
+# rm -rf /etc/sysctl.d/k8s.conf
 
-
-# ALL NODES --- Restart CRI-O in case you have a networking issue
-# systemctl restart crio
-
-## Common issues here:
+############################## Common issues #####################################
 # - Found multiple CRI endpoints on the host. >> You need to check for docker, crio, and containerd services. Only one can be running at kubeadm "init" or "join"
 # - Something about "invalid arguments from /proc* >> you need to make sure your config file has the right settings, you've done sysctl --system, and compelted a reboot.
 #   - For more on this issue, check line 
@@ -293,29 +288,3 @@ rm -rf /etc/sysctl.d/k8s.conf
 
 ## Remove all Taints // if you want to schedule apps on the master node by default
 # kubectl taint nodes elastic1 key-
-
-## Create a default storage class
-
-# mkdir /etc/dev_range/workdir/kube_configs
-
-# cat <<EOF | tee /etc/dev_range/workdir/kube_configs/default-storage-class.yaml
-# apiVersion: storage.k8s.io/v1
-# kind: StorageClass
-# metadata:
-#   name: local-storage
-# provisioner: kubernetes.io/no-provisioner
-# parameters:
-#   type: gp2
-# reclaimPolicy: Retain
-# allowVolumeExpansion: true
-# mountOptions:
-#   - debug
-# volumeBindingMode: WaitForFirstConsumer
-# EOF
-
-# kubectl apply -f /etc/dev_range/workdir/kube_configs/default-storage-class.yaml
-# kubectl patch storageclass local-storage -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-
-
-# kubeadm join 10.112.100.201:6443 --token 9xc85z.nvbxpov8bdm1b9ha \
-#         --discovery-token-ca-cert-hash sha256:e86dbb8638438771b7ef66b3a59ecb5c34d26bd89bab3b936010de6c46131823
