@@ -28,7 +28,7 @@ nala --show-completion bash
 # sudo nala fetch 1,2,3,4,5
 
 # Install Packages
-nala install -y git firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+nala install -y tree git firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
 
 
 # Aliases
@@ -166,7 +166,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 #kubeadm join 192.168.242.130:6443 --token qjw9j3.wccprdgjbnolo56f \
 #--discovery-token-ca-cert-hash sha256:7e02f57c38b57560b16b9472aa45f6b3092efc7eb9b408556b2eb91fe2da68ad
 
-# Taint all the things; node-role.kubernetes.io/master is deprecated
+# Untaint your control-plane nodes to allow pods to schedule there
 # REF: https://kubernetes.io/docs/reference/labels-annotations-taints/#node-role-kubernetes-io-control-plane-taint
 kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-
 
@@ -196,14 +196,26 @@ cilium install --version 1.16.0
 # n (add a new partitioning table)
 # w (write disk)
 
+################## Rook-Ceph Install ##########################
+#REF: https://rook.io/docs/rook/latest-release/Getting-Started/quickstart/#deploy-the-rook-operator
+
 # Git Clone Rook Ceph and Deploy basic Ceph cluster
 git clone --single-branch --branch v1.14.9 https://github.com/rook/rook.git
 cd rook/deploy/examples
 kubectl create -f crds.yaml -f common.yaml -f operator.yaml
 kubectl create -f cluster.yaml
 
-##enable rook discovery daemon in the operator.yaml
-## cluster.yaml, enable host = true to use host IPs vs Cluster/LB IPs
+### operator.yaml tweaks
+# enable rook discovery daemon in the operator.yaml
+# sed this: ROOK_ENABLE_DISCOVERY_DAEMON: "true"
+
+### cluster.yaml tweaks
+## Consider CASE logic to determine how many mon/mgr per cluster - determined by node count
+# cluster.yaml, enable host = true to use host IPs vs Cluster/LB IPs
+# cluster yaml, add configMap for overrides
+# cluster yaml, add mon = 1
+# cluster yaml, add mgr = 1
+# cluster yaml, add osdsPerDevice = 1
 
 ### Ceph storage class example:
 # apiVersion: ceph.rook.io/v1
@@ -264,7 +276,7 @@ kubectl create -f cluster.yaml
 # reclaimPolicy: Delete
 
 
-##  Cleanup Commands ##
+###################### Kube Bootstrap Cleanup Commands ###########################
 # apt remove -y cri-o cri-o-runc cri-tools kubeadm kubelet kubectl
 # rm -rf /etc/cni/net.d
 # iptables -F
