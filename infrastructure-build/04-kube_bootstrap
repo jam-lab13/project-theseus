@@ -8,7 +8,7 @@ grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 ### Kube boostrap ip range
 #KUBE_CIDR="172.31.0.0/16"
 #--pod-network-cidr=$KUBE_CIDR
-# Without specifying the above, the default Cillium network space for pods will be 10.0.0.0/24
+# Without specifying the above, the default Cilium network space for pods will be 10.0.0.0/24
 
 ## Cleanup Commands
 # kubeadm reset
