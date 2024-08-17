@@ -12,5 +12,6 @@
 export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
 kubectl krew install rook-ceph
+kubectl krew install dumpy
 
 # You can now run 'kubectl rook-ceph ceph status'

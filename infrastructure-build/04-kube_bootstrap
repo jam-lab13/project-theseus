@@ -27,10 +27,6 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 # cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 # chown $(id -u):$(id -g) $HOME/.kube/config
 
-# Got these tokens back
-#kubeadm join 192.168.242.130:6443 --token qjw9j3.wccprdgjbnolo56f \
-#--discovery-token-ca-cert-hash sha256:7e02f57c38b57560b16b9472aa45f6b3092efc7eb9b408556b2eb91fe2da68ad
-
 # Untaint your control-plane nodes to allow pods to schedule there
 # REF: https://kubernetes.io/docs/reference/labels-annotations-taints/#node-role-kubernetes-io-control-plane-taint
 kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-

@@ -1,5 +1,5 @@
 ### Kube cluster build for:
-# Debian ------ 12
+# Debian ------ 12 (bookworm)
 # kubernetes -- 1.30
 # containerd -- 1.7.18-1
 # Cilium ------ v0.16.15
