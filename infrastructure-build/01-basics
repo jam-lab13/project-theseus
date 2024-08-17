@@ -1,0 +1,54 @@
+### Server User Account (Non-root)
+SVR_USER="dev"
+WORKDIR="/home/$SVR_USER/dev-dir"
+
+##############################################  the basics  ############################################
+
+# Switch to root
+su -
+
+# Add Helm Key & Repo
+curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+
+##  Basic stuff  ##
+apt update
+apt install -y nala && nala upgrade
+nala --install-completion bash
+nala --show-completion bash
+# Only keep the top 5 fastest mirrors
+# sudo nala fetch 1,2,3,4,5
+
+# Install Packages
+nala install -y tree git firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+
+
+# Aliases
+echo "alias ll='ls -la'" >> ~/.bashrc
+echo "alias ll='ls -la'" >> /home/$SVR_USER/.bash_aliases
+echo "alias k='kubectl'" >> /home/$SVR_USER/.bash_aliases
+
+# Setup non-root user
+/sbin/usermod -a -G sudo $SVR_USER
+echo "$SVR_USER ALL=(ALL) ALL" >> /etc/sudoers
+
+# Setup Network Manager
+echo "managed=true" >> /etc/NetworkManager/NetworkManager.conf
+systemctl restart NetworkManager
+
+# Kill the swap space
+swapoff -a
+sed -i 's_/swap.img_#/swap.img_g' /etc/fstab
+(crontab -l 2>/dev/null; echo "@reboot /sbin/swapoff -a") | crontab - || true
+
+#########################################  SSH Setup  #####################################################
+
+# ssh-keygen
+
+# echo "192.168.1.111 svr1" >> /etc/hosts
+# echo "192.168.1.112 svr2" >> /etc/hosts
+# echo "192.168.1.113 svr3" >> /etc/hosts
+
+# ssh-copy-id svr1
+# ssh-copy-id svr2
+# ssh-copy-id svr3

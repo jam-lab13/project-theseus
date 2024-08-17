@@ -1,0 +1,45 @@
+################ Ceph pre-reqs ################################
+# add a couple disks to your vm
+# fdisk -l
+# fdisk /dev/<new device name>
+# g (add a new gpt)
+# n (add a new partitioning table)
+# w (write disk)
+
+################## Rook-Ceph Install ##########################
+#REF: https://rook.io/docs/rook/latest-release/Getting-Started/quickstart/#deploy-the-rook-operator
+#REF: https://rook.io/docs/rook/latest-release/Getting-Started/example-configurations/#cluster-crd
+#REF: https://rook.io/docs/rook/latest-release/CRDs/Block-Storage/ceph-block-pool-crd/#erasure-coded
+
+# Git Clone Rook Ceph and Deploy basic Ceph cluster
+git clone --single-branch --branch v1.14.9 https://github.com/rook/rook.git
+cd rook/deploy/examples
+kubectl create -f crds.yaml -f common.yaml -f operator.yaml
+kubectl create -f cluster.yaml
+
+### operator.yaml tweaks
+# enable rook discovery daemon in the operator.yaml
+# sed this: ROOK_ENABLE_DISCOVERY_DAEMON: "true"
+
+### cluster.yaml tweaks
+## Consider CASE logic to determine how many mon/mgr per cluster - determined by node count
+#REF: https://medium.com/@satheesh.mohandass/installing-rook-ceph-for-persistent-storage-on-single-node-openshift-c1102a8ced40
+
+# Custom ConfigMap for overrides below:
+# ---
+# kind: ConfigMap
+# apiVersion: v1
+# metadata:
+#   name: rook-config-override
+#   namespace: rook-ceph
+# data:
+#   config: |
+#     [global]
+#     osd_pool_default_size = 1
+# ---
+
+# cluster.yaml, enable host = true to use host IPs vs Cluster/LB IPs
+# cluster yaml, add configMap for overrides
+# cluster yaml, add mon = 1
+# cluster yaml, add mgr = 1
+# cluster yaml, add osdsPerDevice = 1

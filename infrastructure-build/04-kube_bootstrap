@@ -1,0 +1,36 @@
+############################## Kube Bootstrap ####################################
+# REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
+
+kubeadm init --config ~/dev-dir/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
+grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
+
+## Optional if you want to setup your own cluster IP-space
+### Kube boostrap ip range
+#KUBE_CIDR="172.31.0.0/16"
+#--pod-network-cidr=$KUBE_CIDR
+# Without specifying the above, the default Cillium network space for pods will be 10.0.0.0/24
+
+## Cleanup Commands
+# kubeadm reset
+# rm -rf ~/.kube/*
+# iptables -F
+# rm -rf /etc/cni/net.d
+# rm -f /tmp/bootstrap_log.txt
+# systemctl restart containerd
+# systemctl stop kubelet
+
+# Root User
+export KUBECONFIG=/etc/kubernetes/admin.conf
+
+# # Run as sudo $SVR_USER
+# mkdir -p $HOME/.kube
+# cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+# chown $(id -u):$(id -g) $HOME/.kube/config
+
+# Got these tokens back
+#kubeadm join 192.168.242.130:6443 --token qjw9j3.wccprdgjbnolo56f \
+#--discovery-token-ca-cert-hash sha256:7e02f57c38b57560b16b9472aa45f6b3092efc7eb9b408556b2eb91fe2da68ad
+
+# Untaint your control-plane nodes to allow pods to schedule there
+# REF: https://kubernetes.io/docs/reference/labels-annotations-taints/#node-role-kubernetes-io-control-plane-taint
+kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule-
