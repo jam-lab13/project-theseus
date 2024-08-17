@@ -33,7 +33,8 @@ nala install -y tree git firewalld htop gpg curl accountsservice neofetch sudo n
 
 # Aliases
 echo "alias ll='ls -la'" >> ~/.bashrc
-echo "alias ll='ls -la'" >> /home/$SVR_USER/.bashrc
+echo "alias ll='ls -la'" >> /home/$SVR_USER/.bash_aliases
+echo "alias k='kubectl'" >> /home/$SVR_USER/.bash_aliases
 
 # Setup non-root user
 /sbin/usermod -a -G sudo $SVR_USER
@@ -149,6 +150,7 @@ grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 ### Kube boostrap ip range
 #KUBE_CIDR="172.31.0.0/16"
 #--pod-network-cidr=$KUBE_CIDR
+# Without specifying the above, the default Cillium network space for pods will be 10.0.0.0/24
 
 ## Cleanup Commands
 # kubeadm reset
@@ -161,6 +163,11 @@ grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 
 # Root User
 export KUBECONFIG=/etc/kubernetes/admin.conf
+
+# # Run as sudo $SVR_USER
+# mkdir -p $HOME/.kube
+# cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+# chown $(id -u):$(id -g) $HOME/.kube/config
 
 # Got these tokens back
 #kubeadm join 192.168.242.130:6443 --token qjw9j3.wccprdgjbnolo56f \
@@ -198,6 +205,8 @@ cilium install --version 1.16.0
 
 ################## Rook-Ceph Install ##########################
 #REF: https://rook.io/docs/rook/latest-release/Getting-Started/quickstart/#deploy-the-rook-operator
+#REF: https://rook.io/docs/rook/latest-release/Getting-Started/example-configurations/#cluster-crd
+#REF: https://rook.io/docs/rook/latest-release/CRDs/Block-Storage/ceph-block-pool-crd/#erasure-coded
 
 # Git Clone Rook Ceph and Deploy basic Ceph cluster
 git clone --single-branch --branch v1.14.9 https://github.com/rook/rook.git
@@ -211,11 +220,44 @@ kubectl create -f cluster.yaml
 
 ### cluster.yaml tweaks
 ## Consider CASE logic to determine how many mon/mgr per cluster - determined by node count
+#REF: https://medium.com/@satheesh.mohandass/installing-rook-ceph-for-persistent-storage-on-single-node-openshift-c1102a8ced40
+
+# Custom ConfigMap for overrides below:
+# ---
+# kind: ConfigMap
+# apiVersion: v1
+# metadata:
+#   name: rook-config-override
+#   namespace: rook-ceph
+# data:
+#   config: |
+#     [global]
+#     osd_pool_default_size = 1
+# ---
+
 # cluster.yaml, enable host = true to use host IPs vs Cluster/LB IPs
 # cluster yaml, add configMap for overrides
 # cluster yaml, add mon = 1
 # cluster yaml, add mgr = 1
 # cluster yaml, add osdsPerDevice = 1
+
+### Install Krew for Ceph/Kubectl plugin
+(
+  set -x; cd "$(mktemp -d)" &&
+  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+  KREW="krew-${OS}_${ARCH}" &&
+  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+  tar zxvf "${KREW}.tar.gz" &&
+  ./"${KREW}" install krew
+)
+
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+
+kubectl krew install rook-ceph
+
+# You can now run 'kubectl rook-ceph ceph status'
+
 
 ### Ceph storage class example:
 # apiVersion: ceph.rook.io/v1
@@ -274,17 +316,6 @@ kubectl create -f cluster.yaml
 # #mounter: rbd-nbd
 # allowVolumeExpansion: true
 # reclaimPolicy: Delete
-
-
-###################### Kube Bootstrap Cleanup Commands ###########################
-# apt remove -y cri-o cri-o-runc cri-tools kubeadm kubelet kubectl
-# rm -rf /etc/cni/net.d
-# iptables -F
-# rm -rf ~/.kube/*
-# rm -rf /etc/kubernetes/
-# rm -rf /etc/containerd
-# rm -rf /etc/modules-load.d/k8s.conf
-# rm -rf /etc/sysctl.d/k8s.conf
 
 ############################## Common issues #####################################
 # - Found multiple CRI endpoints on the host. >> You need to check for docker, crio, and containerd services. Only one can be running at kubeadm "init" or "join"
