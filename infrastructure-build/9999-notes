@@ -1,3 +1,16 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
 ### Ceph storage class example:
 # apiVersion: ceph.rook.io/v1
 # kind: CephBlockPool

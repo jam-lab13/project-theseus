@@ -1,8 +1,8 @@
-############################## Install Kube CNI (Calico) #########################
+############################## Install Kube CNI (Cilium) #########################
 ### REF: https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
 
 # Cilium CLI install
-CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+CILIUM_CLI_VERSION=v0.16.15 #$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
 CLI_ARCH=amd64
 
 if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi

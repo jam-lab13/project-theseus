@@ -1,7 +1,6 @@
 ### Kube cluster build for:
-# Debian 12
-# K8s version 1.30
-# docker 5:27.0.3-1
-# containerd 1.7.18-1
-# Calico (CNI/Networking)
-# Ceph (Storage Solution)
+# Debian ------ 12
+# kubernetes -- 1.30
+# containerd -- 1.7.18-1
+# Cilium ------ v0.16.15
+# Rook-Ceph --- v1.14.9
