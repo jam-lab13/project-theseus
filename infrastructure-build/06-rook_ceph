@@ -1,10 +1,7 @@
 ################ Ceph pre-reqs ################################
 # add a couple disks to your vm
 # fdisk -l
-# fdisk /dev/<new device name>
-# g (add a new gpt)
-# n (add a new partitioning table)
-# w (write disk)
+# fdisk /dev/<new device name> - ensure raw disks are available
 
 ################## Rook-Ceph Install ##########################
 #REF: https://rook.io/docs/rook/latest-release/Getting-Started/quickstart/#deploy-the-rook-operator

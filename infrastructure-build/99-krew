@@ -9,6 +9,7 @@
   ./"${KREW}" install krew
 )
 
+# Consider etc env instead.. or bashrc
 export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
 kubectl krew install rook-ceph

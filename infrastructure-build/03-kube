@@ -39,7 +39,7 @@ containerd config default > /etc/containerd/config.toml
 # SystemdCgroup = true
 
 ############################## kubeadm config #############################
-# kubeadm-config.yaml
+# Required to configure kublet for systemd (to match containerd)
 mkdir $WORKDIR
 cat <<EOF | tee $WORKDIR/kubeadm-config.yaml
 kind: ClusterConfiguration

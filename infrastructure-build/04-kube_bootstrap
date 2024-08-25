@@ -19,7 +19,7 @@ grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 # systemctl restart containerd
 # systemctl stop kubelet
 
-# Root User
+# Root user, run this for access to kubectl. Consider using bashrc for persistence
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
 # # Run as sudo $SVR_USER
