@@ -1,7 +1,7 @@
 ############################## Kube Bootstrap ####################################
 # REF: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/
 
-kubeadm init --config ~/dev-dir/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
+kubeadm init --config $WORKDIR/kubeadm-config.yaml --v 1 | tee /tmp/bootstrap_log.txt
 grep -a1 "kubeadm join" /tmp/bootstrap_log.txt
 
 ## Optional if you want to setup your own cluster IP-space
