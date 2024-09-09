@@ -29,7 +29,7 @@ echo "alias ll='ls -la'" >> /home/$SVR_USER/.bash_aliases
 echo "alias k='kubectl'" >> /home/$SVR_USER/.bash_aliases
 
 # Setup non-root user
-/sbin/usermod -a -G sudo $SVR_USER
+/sbin/useradd -m -G sudo $SVR_USER
 echo "$SVR_USER ALL=(ALL) ALL" >> /etc/sudoers
 
 # Setup Network Manager

@@ -16,8 +16,6 @@ echo \
 # Update and install
 nala upgrade -y
 nala install -y containerd.io 
-# Add non-root user to the docker group
-usermod $SVR_USER -aG docker
 
 # Apt hold required packages:
 apt-mark hold containerd.io 
