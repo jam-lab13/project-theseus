@@ -9,8 +9,16 @@
 #REF: https://rook.io/docs/rook/latest-release/CRDs/Block-Storage/ceph-block-pool-crd/#erasure-coded
 
 # Git Clone Rook Ceph and Deploy basic Ceph cluster
+
+cd $WORKDIR
 git clone --single-branch --branch v1.14.9 https://github.com/rook/rook.git
-cd rook/deploy/examples
+mkdir $WORKDIR/theseus-yamls/rook-ceph 
+cp $WORKDIR/rook/deploy/examples/crds.yaml $WORKDIR/theseus-yamls/rook-ceph/.
+cp $WORKDIR/rook/deploy/examples/common.yaml $WORKDIR/theseus-yamls/rook-ceph/.
+cp $WORKDIR/rook/deploy/examples/operator.yaml $WORKDIR/theseus-yamls/rook-ceph/.
+cp $WORKDIR/rook/deploy/examples/cluster.yaml $WORKDIR/theseus-yamls/rook-ceph/.
+
+cd $WORKDIR/theseus-yamls/rook-ceph
 kubectl create -f crds.yaml -f common.yaml -f operator.yaml
 kubectl create -f cluster.yaml
 
@@ -35,6 +43,7 @@ kubectl create -f cluster.yaml
 #     osd_pool_default_size = 1
 # ---
 
+# REF: https://www.rusinov.ie/en/posts/2020/setting-up-single-node-ceph-cluster-for-kubernetes/
 # cluster.yaml, enable host = true to use host IPs vs Cluster/LB IPs
 # cluster yaml, add configMap for overrides
 # cluster yaml, add mon = 1
