@@ -1,15 +1,11 @@
-### Server User Account (Non-root)
-SVR_USER="dev"
-WORKDIR="/home/$SVR_USER/dev-dir"
-
 ##############################################  the basics  ############################################
 
 # Switch to root
 su -
 
-# Add Helm Key & Repo
-curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+### Server User Account (Non-root)
+SVR_USER="dev"
+WORKDIR="/home/$SVR_USER/dev-dir"
 
 ##  Basic stuff  ##
 apt update
@@ -21,6 +17,11 @@ nala --show-completion bash
 
 # Install Packages
 nala install -y tree git firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+
+
+# Add Helm Key & Repo
+curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
 
 
 # Aliases
