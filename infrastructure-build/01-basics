@@ -20,7 +20,7 @@ nala --show-completion bash
 # sudo nala fetch 1,2,3,4,5
 
 # Install Packages
-nala install -y tree git firewalld htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
+nala install -y tree git htop gpg curl accountsservice neofetch sudo network-manager vim net-tools ca-certificates apt-transport-https
 
 
 # Aliases
