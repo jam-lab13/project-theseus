@@ -1,0 +1,31 @@
+
+cat <<EOF | kubectl apply -f -
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: quickstart
+spec:
+  version: 8.15.3
+  count: 1
+  elasticsearchRef:
+    name: quickstart
+  podTemplate:
+    spec:
+      containers:
+        - name: kibana
+  http:
+    service:
+      spec:
+        type: NodePort
+        ports:
+          - port: 5601
+            targetPort: 5601
+            protocol: TCP
+            nodePort: 31560
+EOF
+
+kubectl get service quickstart-kb-http
+
+kubectl port-forward service/quickstart-kb-http 5601
+
+kubectl get secret quickstart-es-elastic-user -o=jsonpath='{.data.elastic}' | base64 --decode; echo
